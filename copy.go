@@ -34,7 +34,7 @@ type Copier interface {
 	Copier(os.FileInfo) CopyHandler
 }
 
-func Copy(target, source absfs.FileSystem, c Copier) error {
+func Copy(target, source absfs.SymlinkFileSystem, c Copier) error {
 	var targetpaths, sourcepaths sort.StringSlice
 	tmap := make(map[string]os.FileInfo)
 	f, err := os.Create("/tmp/archive_copier.txt")
