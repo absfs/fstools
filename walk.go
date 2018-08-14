@@ -209,9 +209,8 @@ func PreOrder(fs absfs.Filer, options *Options, path string, fn filepath.WalkFun
 	}
 	info, err := fs.Stat(path)
 	if err != nil {
-		return nil
+		return err
 	}
-
 	var stack entrystack
 
 	stack.push(&entry{0, filepath.Dir(path), info})
@@ -219,7 +218,7 @@ func PreOrder(fs absfs.Filer, options *Options, path string, fn filepath.WalkFun
 		e := stack.pop()
 		err = fn(e.Path(), e.info, nil)
 		if err != nil {
-			if err != filepath.SkipDir {
+			if err == filepath.SkipDir {
 				continue
 			}
 			return err
