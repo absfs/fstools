@@ -33,7 +33,7 @@ var defaultOptions = &Options{
 	Sort:      false,
 	Less:      nil,
 	Fast:      false,
-	Traversal: BreadthTraversal,
+	Traversal: PreOrderTraversal,
 }
 
 type nameSorter []os.FileInfo
@@ -55,55 +55,19 @@ func WalkWithOptions(fs absfs.Filer, options *Options, path string, fn filepath.
 	if options == nil {
 		options = defaultOptions
 	}
-
-	info, err := fs.Stat(path)
-	if err != nil {
-		return nil
+	switch options.Traversal {
+	case BreadthTraversal:
+		return BreadthOrder(fs, options, path, fn)
+	case DepthTraversal:
+		fallthrough
+	case PreOrderTraversal:
+		return PreOrder(fs, options, path, fn)
+	case PostOrderTraversal:
+		return PostOrder(fs, options, path, fn)
+	case KeyTraversal:
+		return KeyOrder(fs, options, path, fn)
 	}
-
-	var infos []os.FileInfo
-	if info.IsDir() {
-		f, err := fs.OpenFile(path, os.O_RDONLY, 0700)
-		if err != nil {
-			return nil
-		}
-		infos, err = f.Readdir(-1)
-		if err != nil {
-			return err
-		}
-		f.Close()
-	}
-
-	err = fn(path, info, err)
-	if err != nil {
-		if err == filepath.SkipDir {
-			return nil
-		}
-		return err
-	}
-
-	if options.Sort {
-		if options.Less == nil {
-			sort.Sort(nameSorter(infos))
-		} else {
-			sort.Sort(funcSorter{infos, options.Less})
-		}
-	}
-
-	for _, nfo := range infos {
-		if nfo.Name() == "." || nfo.Name() == ".." {
-			continue
-		}
-		p := slashpath.Join(path, nfo.Name())
-		err := WalkWithOptions(fs, options, p, fn)
-		if err != nil {
-			if err == filepath.SkipDir {
-				continue
-			}
-			return err
-		}
-	}
-	return nil
+	return errors.New("unsupported traversal type")
 }
 
 func Walk(filer absfs.Filer, path string, fn filepath.WalkFunc) error {
@@ -135,20 +99,38 @@ func (s *entrystack) pop() (e *entry) {
 	return e
 }
 
-func (s *entrystack) peek() (e *entry) {
-	if len((*s)) == 0 {
-		return nil
-	}
-	return (*s)[len((*s))-1]
-}
-
 func (s *entrystack) empty() bool {
 	return len((*s)) == 0
 }
 
+type entryqueue []*entry
+
+func (s *entryqueue) enqueue(e *entry) {
+	(*s) = append((*s), e)
+}
+
+func (s *entryqueue) dequeue() (e *entry) {
+	if len((*s)) == 0 {
+		return nil
+	}
+	e = (*s)[0]
+	(*s) = (*s)[1:]
+	return e
+}
+
+func (s *entryqueue) peek() (e *entry) {
+	return (*s)[0]
+}
+
+func (s *entryqueue) empty() bool {
+	return len((*s)) == 0
+}
+
+var errNotDir error = errors.New("not a directory")
+
 func (e *entry) listDirs(fs absfs.Filer, less SortFunc) ([]*entry, error) {
 	if !e.info.IsDir() {
-		return nil, errors.New("not a directory")
+		return []*entry{}, errNotDir
 	}
 	f, err := fs.OpenFile(e.Path(), os.O_RDONLY, 0700)
 	if err != nil {
@@ -162,30 +144,77 @@ func (e *entry) listDirs(fs absfs.Filer, less SortFunc) ([]*entry, error) {
 	}
 
 	if less != nil {
-		sort.Sort(sort.Reverse(funcSorter{list, less}))
+		sort.Sort(funcSorter{list, less})
+	} else {
+		sort.Sort(sort.Reverse(nameSorter(list)))
 	}
 
-	dirs := make([]*entry, len(list))
+	var dirs []*entry
 	for i := range list {
-		dirs[i] = &entry{e.depth, e.Path(), list[i]}
+		if list[i].Name() == "." || list[i].Name() == ".." {
+			continue
+		}
+		dirs = append(dirs, &entry{e.depth + 1, e.Path(), list[i]})
 	}
 
 	return dirs, nil
 }
 
-func PreOrder(fs absfs.Filer, options *Options, path string, fn filepath.WalkFunc) error {
+func KeyOrder(fs absfs.Filer, options *Options, path string, fn filepath.WalkFunc) error {
+	return PreOrder(fs, options, path, func(path string, info os.FileInfo, err error) error {
+		if info.IsDir() {
+			return nil
+		}
+		return fn(path, info, err)
+	})
+}
+
+func BreadthOrder(fs absfs.Filer, options *Options, path string, fn filepath.WalkFunc) error {
+	if options == nil {
+		options = defaultOptions
+	}
 	info, err := fs.Stat(path)
 	if err != nil {
 		return nil
 	}
-	if info.Name() == "." || info.Name() == ".." {
+
+	var queue entryqueue
+
+	queue.enqueue(&entry{0, filepath.Dir(path), info})
+	for !queue.empty() {
+		e := queue.dequeue()
+		err = fn(e.Path(), e.info, nil)
+		if err != nil {
+			if err != filepath.SkipDir {
+				continue
+			}
+			return err
+		}
+		dirs, err := e.listDirs(fs, options.Less)
+		if err != nil && err != errNotDir {
+			return err
+		}
+
+		for _, entry := range dirs {
+			queue.enqueue(entry)
+		}
+	}
+	return nil
+}
+
+func PreOrder(fs absfs.Filer, options *Options, path string, fn filepath.WalkFunc) error {
+
+	if options == nil {
+		options = defaultOptions
+	}
+	info, err := fs.Stat(path)
+	if err != nil {
 		return nil
 	}
 
 	var stack entrystack
 
-	stack.push(&entry{0, path, info})
-
+	stack.push(&entry{0, filepath.Dir(path), info})
 	for !stack.empty() {
 		e := stack.pop()
 		err = fn(e.Path(), e.info, nil)
@@ -195,8 +224,9 @@ func PreOrder(fs absfs.Filer, options *Options, path string, fn filepath.WalkFun
 			}
 			return err
 		}
+
 		dirs, err := e.listDirs(fs, options.Less)
-		if err != nil {
+		if err != nil && err != errNotDir {
 			return err
 		}
 
@@ -209,27 +239,24 @@ func PreOrder(fs absfs.Filer, options *Options, path string, fn filepath.WalkFun
 }
 
 func PostOrder(fs absfs.Filer, options *Options, path string, fn filepath.WalkFunc) error {
-
+	if options == nil {
+		options = defaultOptions
+	}
 	info, err := fs.Stat(path)
 	if err != nil {
 		return nil
 	}
-	if info.Name() == "." || info.Name() == ".." {
-		return nil
-	}
 
+	//	1.1 Create an empty stack
 	var stack entrystack
-
-	node := &entry{0, path, info}
+	node := &entry{0, filepath.Dir(path), info}
 
 	for !(stack.empty() && node == nil) {
-
 		//	2.1 Do following while `node` is not NULL
 		if node != nil {
-
 			//		a) Push nods's right children and then node to stack.
 			dirs, err := node.listDirs(fs, options.Less)
-			if err != nil {
+			if err != nil && err != errNotDir {
 				return err
 			}
 
@@ -238,8 +265,9 @@ func PostOrder(fs absfs.Filer, options *Options, path string, fn filepath.WalkFu
 				node = nil
 				continue
 			}
-			for i := range dirs {
-				stack.push(dirs[i])
+
+			for _, dir := range dirs {
+				stack.push(dir)
 			}
 			left := stack.pop()
 			stack.push(node)
@@ -262,7 +290,6 @@ func PostOrder(fs absfs.Filer, options *Options, path string, fn filepath.WalkFu
 
 		right := stack.pop()
 		if right != nil && right.depth == node.depth+1 {
-			// log.Infof("right.Depth() %d == node.Depth() %d +1 %q, %q", right.Depth(), node.Depth(), right.Name, node.Name)
 			stack.push(node)
 			node = right
 			continue
@@ -281,38 +308,6 @@ func PostOrder(fs absfs.Filer, options *Options, path string, fn filepath.WalkFu
 
 		node = nil
 
-	} //	2.3 Repeat steps 2.1 and 2.2 while stack is not empty.
-	// push(&entry{0, id, name})
-
-	// for !empty() {
-	// 	e := peek()
-	// 	dirs := tx.GetDirs(e.Id)
-	// 	if dirs.Len() == 0 {
-	// 		err = fn(e.Name, e.Id, nil)
-	// 	}
-	// 	sort.Sort(sort.Reverse(dirs))
-	// 	for i := range dirs {
-	// 		dirs[i].SetDepth(e.Depth() + 1)
-	// 		push(&dirs[i])
-	// 	}
-
-	// 	err = fn(e.Name, e.Id, nil)
-	// 	if err != nil {
-	// 		if err != filepath.SkipDir {
-	// 			continue
-	// 		}
-	// 		return err
-	// 	}
-	// 	dirs = tx.GetDirs(id)
-	// 	if len(dirs) == 0 {
-	// 		continue
-	// 	}
-	// 	sort.Sort(sort.Reverse(dirs))
-
-	// 	for _, entry := range dirs {
-	// 		entry.SetDepth(e.Depth() + 1)
-	// 		push(&entry)
-	// 	}
-	// }
+	}
 	return nil
 }
