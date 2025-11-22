@@ -180,7 +180,7 @@ func BreadthOrder(fs absfs.Filer, options *Options, path string, fn filepath.Wal
 
 	var queue entryqueue
 
-	queue.enqueue(&entry{0, filepath.Dir(path), info})
+	queue.enqueue(&entry{0, slashpath.Dir(path), info})
 	for !queue.empty() {
 		e := queue.dequeue()
 		err = fn(e.Path(), e.info, nil)
@@ -213,7 +213,7 @@ func PreOrder(fs absfs.Filer, options *Options, path string, fn filepath.WalkFun
 	}
 	var stack entrystack
 
-	stack.push(&entry{0, filepath.Dir(path), info})
+	stack.push(&entry{0, slashpath.Dir(path), info})
 	for !stack.empty() {
 		e := stack.pop()
 		err = fn(e.Path(), e.info, nil)
@@ -248,7 +248,7 @@ func PostOrder(fs absfs.Filer, options *Options, path string, fn filepath.WalkFu
 
 	//	1.1 Create an empty stack
 	var stack entrystack
-	node := &entry{0, filepath.Dir(path), info}
+	node := &entry{0, slashpath.Dir(path), info}
 
 	for !(stack.empty() && node == nil) {
 		//	2.1 Do following while `node` is not NULL
