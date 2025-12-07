@@ -1,41 +1,85 @@
 # FsTools - Tools for file systems.
 
-Work in progress.
+[![Go Reference](https://pkg.go.dev/badge/github.com/absfs/fstools.svg)](https://pkg.go.dev/github.com/absfs/fstools)
+[![Go Report Card](https://goreportcard.com/badge/github.com/absfs/fstools)](https://goreportcard.com/report/github.com/absfs/fstools)
+[![CI](https://github.com/absfs/fstools/actions/workflows/ci.yml/badge.svg)](https://github.com/absfs/fstools/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-## Features
+Utilities for traversing and manipulating abstract file systems that implement
+the [absfs.Filer](https://github.com/absfs/absfs) interface.
 
-- Walk
-    + Walk walks a absfs.FileSystem similar to the filepath Walk standard
-      library function.
+## Implemented Features
 
-- WalkWithOptions
-    + Adds the ability to specify options for how a walk is performed. Such as
-      if directories are sorted and in what order, normal or fast walk,
-      traversal order, symbolic link handling and more.
+- **Walk** - Traverses an absfs.Filer similar to filepath.Walk from the standard
+  library, using PreOrder (depth-first) traversal by default.
 
-- PreOrder, PostOrder, InOrder and BreadthFirst Walkers
-    + Additional walking strategies for ordered traversal of file systems.
+- **WalkWithOptions** - Configurable traversal with options for sorting,
+  custom comparison functions, and traversal order selection.
 
-- Copy
-    + Copy copies filesystem structures form one filesystem to another with
-      options for selecting and transforming what is copied.
+- **PreOrder** - Depth-first traversal visiting parent directories before
+  their children (standard traversal order).
 
-- Describe
-    + Creates a data structure that describes a file system. The description
-      contains basic metadata as found in `os.FileInfo`, the identification
-      of file data and directories using a (c4 Id)[https://github.com/Avalanche-io/c4],
-      and can be serialized into JSON, YAML, CUE and other formats.
+- **PostOrder** - Depth-first traversal visiting children before their parent
+  directories, useful for operations like recursive deletion.
 
-- Diff
-    + Returns the difference between two file system descriptions.
+- **BreadthOrder** - Level-by-level traversal (breadth-first search), visiting
+  all entries at each depth before descending.
 
-- Patch
-    + Given a file system that matches the first file system in a Diff, and a
-      c4 data source Patch will transform the file system to match the second
-      file system in a diff. Requires a c4 data source.
+- **KeyOrder** - Traversal that visits only files, skipping directories entirely.
 
-- Apply
-    + Apply takes a file system, c4 data source, and file system description and
-      transforms the file system to match the description.
+- **Exists** - Simple utility to check if a path exists in a filesystem.
+
+- **Size** - Calculate total size of a file or directory tree in bytes.
+
+- **Count** - Count the number of files and directories under a path.
+
+- **Equal** - Compare two files or directory trees for identical content.
+
+- **Copy** - Copy files and directory trees between filesystems with options for:
+  - Parallel file copying (for thread-safe filesystems)
+  - Metadata preservation (permissions, timestamps)
+  - Filtering via callbacks (skip files/directories)
+  - Error handling callbacks for partial copy recovery
+
+## Installation
+
+```bash
+go get github.com/absfs/fstools
+```
+
+## Usage
+
+```go
+import (
+    "fmt"
+    "os"
+    "path/filepath"
+
+    "github.com/absfs/fstools"
+    "github.com/absfs/memfs"
+)
+
+func main() {
+    fs, _ := memfs.NewFS()
+
+    // Walk with default PreOrder traversal
+    fstools.Walk(fs, "/", func(path string, info os.FileInfo, err error) error {
+        fmt.Println(path)
+        return nil
+    })
+
+    // Walk with custom options
+    opts := &fstools.Options{
+        Less: func(a, b os.FileInfo) bool {
+            return a.Name() < b.Name()
+        },
+        Traversal: fstools.BreadthTraversal,
+    }
+    fstools.WalkWithOptions(fs, opts, "/", func(path string, info os.FileInfo, err error) error {
+        fmt.Println(path)
+        return nil
+    })
+}
+```
 
 
