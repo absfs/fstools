@@ -49,7 +49,7 @@ type funcSorter struct {
 
 func (s funcSorter) Len() int           { return len(s.infos) }
 func (s funcSorter) Swap(i, j int)      { s.infos[i], s.infos[j] = s.infos[j], s.infos[i] }
-func (s funcSorter) Less(i, j int) bool { return s.fn(s.infos[i], s.infos[i]) }
+func (s funcSorter) Less(i, j int) bool { return s.fn(s.infos[i], s.infos[j]) }
 
 func WalkWithOptions(fs absfs.Filer, options *Options, path string, fn filepath.WalkFunc) error {
 	if options == nil {
