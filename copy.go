@@ -38,9 +38,28 @@ var defaultCopyOptions = &CopyOptions{
 
 // Copy copies files and directories from src filesystem to dst filesystem.
 // It recursively copies the entire directory tree starting at srcPath to dstPath.
+// If opts.Parallel is true, uses concurrent copying for better performance on
+// thread-safe filesystems.
 func Copy(src, dst absfs.FileSystem, srcPath, dstPath string, opts *CopyOptions) error {
 	if opts == nil {
 		opts = defaultCopyOptions
+	}
+
+	// If Parallel is enabled, delegate to ParallelCopy
+	if opts.Parallel {
+		parallelOpts := &ParallelCopyOptions{
+			NumWorkers:    0, // Use default (CPU count)
+			PreserveMode:  opts.PreserveMode,
+			PreserveTimes: opts.PreserveTimes,
+			Filter:        opts.Filter,
+		}
+		if opts.OnError != nil {
+			parallelOpts.OnError = func(path string, err error) error {
+				return opts.OnError(path, err)
+			}
+		}
+		_, err := ParallelCopy(src, dst, srcPath, dstPath, parallelOpts)
+		return err
 	}
 
 	srcInfo, err := src.Stat(srcPath)

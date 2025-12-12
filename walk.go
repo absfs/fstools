@@ -2,6 +2,7 @@ package fstools
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	slashpath "path"
 	"path/filepath"
@@ -51,21 +52,37 @@ func (s funcSorter) Len() int           { return len(s.infos) }
 func (s funcSorter) Swap(i, j int)      { s.infos[i], s.infos[j] = s.infos[j], s.infos[i] }
 func (s funcSorter) Less(i, j int) bool { return s.fn(s.infos[i], s.infos[j]) }
 
-func WalkWithOptions(fs absfs.Filer, options *Options, path string, fn filepath.WalkFunc) error {
+func WalkWithOptions(filer absfs.Filer, options *Options, path string, fn filepath.WalkFunc) error {
 	if options == nil {
 		options = defaultOptions
 	}
+
+	// If Fast is enabled, use FastWalk (concurrent traversal)
+	if options.Fast {
+		return FastWalk(filer, path, func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return fn(p, nil, err)
+			}
+			// Get FileInfo for compatibility with WalkFunc
+			info, err := d.Info()
+			if err != nil {
+				return fn(p, nil, err)
+			}
+			return fn(p, info, nil)
+		})
+	}
+
 	switch options.Traversal {
 	case BreadthTraversal:
-		return BreadthOrder(fs, options, path, fn)
+		return BreadthOrder(filer, options, path, fn)
 	case DepthTraversal:
 		fallthrough
 	case PreOrderTraversal:
-		return PreOrder(fs, options, path, fn)
+		return PreOrder(filer, options, path, fn)
 	case PostOrderTraversal:
-		return PostOrder(fs, options, path, fn)
+		return PostOrder(filer, options, path, fn)
 	case KeyTraversal:
-		return KeyOrder(fs, options, path, fn)
+		return KeyOrder(filer, options, path, fn)
 	}
 	return errors.New("unsupported traversal type")
 }

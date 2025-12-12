@@ -3,6 +3,7 @@ package fstools
 import (
 	"errors"
 	"os"
+	"sync"
 	"testing"
 
 	"github.com/absfs/absfs"
@@ -198,6 +199,58 @@ func TestKeyOrderWalk(t *testing.T) {
 	for i, path := range values {
 		if path != expected[i] {
 			t.Errorf("wrong path order got %q expected %q", path, expected[i])
+		}
+	}
+}
+
+func TestFastWalkOption(t *testing.T) {
+	fs, err := setup()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Expected paths (order may vary due to concurrent traversal)
+	expected := map[string]bool{
+		"/":          true,
+		"/F":         true,
+		"/F/B":       true,
+		"/F/B/A":     true,
+		"/F/B/D":     true,
+		"/F/B/D/C":   true,
+		"/F/B/D/E":   true,
+		"/F/G":       true,
+		"/F/G/I":     true,
+		"/F/G/I/H":   true,
+	}
+
+	var mu sync.Mutex
+	visited := make(map[string]bool)
+	opts := &Options{Fast: true}
+
+	err = WalkWithOptions(fs, opts, "/", func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		mu.Lock()
+		visited[path] = true
+		mu.Unlock()
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Check all expected paths were visited
+	for path := range expected {
+		if !visited[path] {
+			t.Errorf("Expected to visit %s but didn't", path)
+		}
+	}
+
+	// Check no unexpected paths
+	for path := range visited {
+		if !expected[path] {
+			t.Errorf("Visited unexpected path: %s", path)
 		}
 	}
 }

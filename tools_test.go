@@ -252,3 +252,43 @@ func TestCopyWithFilter(t *testing.T) {
 		t.Errorf("Filtered directory should exist")
 	}
 }
+
+func TestCopyParallelOption(t *testing.T) {
+	src := setupTestFS(t)
+	dst, err := memfs.NewFS()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Test copying with Parallel option enabled
+	opts := &fstools.CopyOptions{
+		Parallel:      true,
+		PreserveMode:  true,
+		PreserveTimes: true,
+	}
+
+	err = fstools.Copy(src, dst, "/testdir", "/parallel_copied", opts)
+	if err != nil {
+		t.Errorf("Parallel Copy error: %v", err)
+	}
+
+	// Verify the copy succeeded by checking equality
+	equal, err := fstools.Equal(src, "/testdir", dst, "/parallel_copied")
+	if err != nil {
+		t.Errorf("Equal error: %v", err)
+	}
+	if !equal {
+		t.Errorf("Parallel copied directory should be equal to source")
+	}
+
+	// Verify specific files exist
+	if !fstools.Exists(dst, "/parallel_copied/file1.txt") {
+		t.Error("file1.txt should exist")
+	}
+	if !fstools.Exists(dst, "/parallel_copied/subdir/file3.txt") {
+		t.Error("subdir/file3.txt should exist")
+	}
+	if !fstools.Exists(dst, "/parallel_copied/subdir/deep/file4.txt") {
+		t.Error("subdir/deep/file4.txt should exist")
+	}
+}
