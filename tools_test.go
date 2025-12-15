@@ -255,10 +255,8 @@ func TestCopyWithFilter(t *testing.T) {
 
 func TestCopyParallelOption(t *testing.T) {
 	src := setupTestFS(t)
-	dst, err := memfs.NewFS()
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Use thread-safe memfs for parallel copy since memfs is not thread-safe
+	dst := newThreadSafeMemFS(t)
 
 	// Test copying with Parallel option enabled
 	opts := &fstools.CopyOptions{
@@ -267,7 +265,7 @@ func TestCopyParallelOption(t *testing.T) {
 		PreserveTimes: true,
 	}
 
-	err = fstools.Copy(src, dst, "/testdir", "/parallel_copied", opts)
+	err := fstools.Copy(src, dst, "/testdir", "/parallel_copied", opts)
 	if err != nil {
 		t.Errorf("Parallel Copy error: %v", err)
 	}

@@ -5,12 +5,29 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/absfs/absfs"
 	"github.com/absfs/fstools"
+	"github.com/absfs/lockfs"
 	"github.com/absfs/memfs"
 )
 
+// newThreadSafeMemFS creates a memfs wrapped with lockfs for thread-safe concurrent access.
+// This is necessary because memfs is not thread-safe and parallel copy uses multiple workers.
+func newThreadSafeMemFS(t *testing.T) absfs.FileSystem {
+	t.Helper()
+	mfs, err := memfs.NewFS()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lfs, err := lockfs.NewFS(mfs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return lfs
+}
+
 func TestParallelCopy(t *testing.T) {
-	// Create source filesystem with test data
+	// Create source filesystem with test data (doesn't need locking - read-only during copy)
 	srcFS, err := memfs.NewFS()
 	if err != nil {
 		t.Fatal(err)
@@ -26,10 +43,10 @@ func TestParallelCopy(t *testing.T) {
 
 	// Create files with content
 	files := map[string]string{
-		"/file1.txt":            "content1",
-		"/dir1/file2.txt":       "content2",
+		"/file1.txt":             "content1",
+		"/dir1/file2.txt":        "content2",
 		"/dir1/subdir/file3.txt": "content3",
-		"/dir2/file4.txt":       "content4",
+		"/dir2/file4.txt":        "content4",
 	}
 	for path, content := range files {
 		f, err := srcFS.Create(path)
@@ -40,11 +57,8 @@ func TestParallelCopy(t *testing.T) {
 		f.Close()
 	}
 
-	// Create destination filesystem
-	dstFS, err := memfs.NewFS()
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Create destination filesystem with lockfs for thread-safe concurrent writes
+	dstFS := newThreadSafeMemFS(t)
 
 	// Perform parallel copy
 	stats, err := fstools.ParallelCopy(srcFS, dstFS, "/", "/backup", nil)
@@ -125,10 +139,7 @@ func TestParallelCopyWithFilter(t *testing.T) {
 	f.Write([]byte("excluded"))
 	f.Close()
 
-	dstFS, err := memfs.NewFS()
-	if err != nil {
-		t.Fatal(err)
-	}
+	dstFS := newThreadSafeMemFS(t)
 
 	// Copy with filter that excludes /exclude directory
 	opts := &fstools.ParallelCopyOptions{
@@ -166,10 +177,7 @@ func TestParallelCopyWithProgress(t *testing.T) {
 		f.Close()
 	}
 
-	dstFS, err := memfs.NewFS()
-	if err != nil {
-		t.Fatal(err)
-	}
+	dstFS := newThreadSafeMemFS(t)
 
 	var progressCount int64
 	opts := &fstools.ParallelCopyOptions{
@@ -202,10 +210,7 @@ func TestParallelCopyWorkerCount(t *testing.T) {
 		f.Close()
 	}
 
-	dstFS, err := memfs.NewFS()
-	if err != nil {
-		t.Fatal(err)
-	}
+	dstFS := newThreadSafeMemFS(t)
 
 	// Test with specific worker count
 	opts := &fstools.ParallelCopyOptions{
@@ -233,10 +238,8 @@ func TestParallelCopySingleFile(t *testing.T) {
 	f.Write([]byte("single file content"))
 	f.Close()
 
-	dstFS, err := memfs.NewFS()
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Single file copy doesn't use parallel workers but use lockfs for consistency
+	dstFS := newThreadSafeMemFS(t)
 
 	stats, err := fstools.ParallelCopy(srcFS, dstFS, "/single.txt", "/copied.txt", nil)
 	if err != nil {
